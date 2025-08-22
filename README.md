@@ -1,20 +1,32 @@
-# Authentication Server
+# 🔐 Authentication Server
 
-A secure TLS authentication server that verifies client credentials against a PHP backend API.
+**Secure TLS Authentication Microservice with Hardware ID Validation**
 
-## Features
+![C](https://img.shields.io/badge/C-00599C?style=for-the-badge&logo=c&logoColor=white)
+![TLS](https://img.shields.io/badge/TLS-1.2-009688?style=for-the-badge)
+![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)
+![Build](https://img.shields.io/badge/Build-Passing-success?style=for-the-badge)
 
-- TLS/SSL encryption
-- HTTP client for backend verification
-- JSON response generation
-- Token-based authentication
-- HWID validation
+A high-performance, secure authentication server built in C that provides TLS-encrypted client authentication with hardware ID validation and token generation capabilities.
 
-## Dependencies
+## ✨ Features
 
-- WolfSSL
-- libcurl
-- jansson
+- **🔒 TLS 1.2 Encryption** - Secure communication using WolfSSL
+- **🖥️ Hardware ID Validation** - CPU-based device fingerprinting
+- **⚡ High Performance** - Lightweight and efficient C implementation
+- **🔑 Token Generation** - Secure MD5-based token issuance
+- **🌐 RESTful API** - JSON responses for easy integration
+- **🛡️ Security First** - Built with security best practices
+- **📊 Logging** - Comprehensive connection and authentication logging
+
+## 🏗️ Architecture
+
+graph TD
+    A[Client] -->|TLS Connection| B[Auth Server]
+    B -->|Verify Credentials| C[PHP Backend API]
+    C -->|Validation Result| B
+    B -->|JSON Response| A
+    B -->|Generate Token| D[Token Storage]
 
 
 
