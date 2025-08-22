@@ -28,7 +28,7 @@ graph TD
     B -->|JSON Response| A
     B -->|Generate Token| D[Token Storage]
 
-
+```
 
 # SSL Client - Secure Authentication System
 
