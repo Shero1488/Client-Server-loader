@@ -20,7 +20,7 @@ A high-performance, secure authentication server built in C that provides TLS-en
 - **📊 Logging** - Comprehensive connection and authentication logging
 
 ## 🏗️ Architecture
-
+```mermaid
 graph TD
     A[Client] -->|TLS Connection| B[Auth Server]
     B -->|Verify Credentials| C[PHP Backend API]
