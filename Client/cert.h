@@ -1,4 +1,6 @@
 #pragma once
+#include "Utils/xor.h"
+
 const char* certBuffer = "-----BEGIN CERTIFICATE-----\n"
 "MIIDnTCCAoWgAwIBAgIUAlxuI2+OJmr+ZChkCVvr2X/haVswDQYJKoZIhvcNAQEL\n"
 "BQAwXjELMAkGA1UEBhMCQVUxEjAQBgNVBAgMCURpdmVyc2l2ZTEPMA0GA1UEBwwG\n"

@@ -2,6 +2,7 @@
 #include <winsock2.h>
 #include <wolfssl/ssl.h>
 #include <time.h>
+#include "../Utils/xor.h"
 
 #define TOKEN_SIZE 33
 
@@ -23,4 +24,7 @@ typedef struct AppState {
     SOCKET sockfd;
     WOLFSSL_CTX* ctx;
     int connection_established;
+
+    bool auto_login = false;
+    bool save_creds = false;
 } AppState;

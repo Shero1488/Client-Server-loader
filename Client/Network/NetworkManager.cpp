@@ -11,7 +11,7 @@
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "iphlpapi.lib")
 
-#define SERVER_IP "121.127.37.152"
+#define SERVER_IP xorstr_("121.127.37.152")
 #define PORT 4433
 #define BUFFER_SIZE 1024
 
@@ -28,30 +28,30 @@ DWORD WINAPI connect_to_server(LPVOID param) {
     struct sockaddr_in server_addr;
 
     state->connection_established = 0;
-    strcpy(state->status, "Initializing connection...");
+    strcpy(state->status, xorstr_("Initializing connection..."));
 
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-        strcpy(state->status, "Winsock initialization error");
+        strcpy(state->status, xorstr_("Winsock initialization error"));
         return 1;
     }
 
     wolfSSL_Init();
     state->ctx = wolfSSL_CTX_new(wolfTLSv1_2_client_method());
     if (!state->ctx) {
-        strcpy(state->status, "SSL context creation error");
+        strcpy(state->status, xorstr_("SSL context creation error"));
         WSACleanup();
         return 1;
     }
 
     if (wolfSSL_CTX_load_verify_buffer(state->ctx, (const unsigned char*)certBuffer, strlen(certBuffer), WOLFSSL_FILETYPE_PEM) != WOLFSSL_SUCCESS) {
-        strcpy(state->status, "Error loading certificate");
+        strcpy(state->status, xorstr_("Error loading certificate"));
         wolfSSL_CTX_free(state->ctx);
         WSACleanup();
         return 1;
     }
 
     if ((state->sockfd = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET) {
-        strcpy(state->status, "Socket creation error");
+        strcpy(state->status, xorstr_("Socket creation error"));
         wolfSSL_CTX_free(state->ctx);
         WSACleanup();
         return 1;
@@ -62,23 +62,23 @@ DWORD WINAPI connect_to_server(LPVOID param) {
     server_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
     server_addr.sin_port = htons(PORT);
 
-    strcpy(state->status, "Connecting to server...");
+    strcpy(state->status, xorstr_("Connecting to server..."));
 
     if (connect(state->sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)) == SOCKET_ERROR) {
-        strcpy(state->status, "Server connection error");
+        strcpy(state->status, xorstr_("Server connection error"));
         closesocket(state->sockfd);
         wolfSSL_CTX_free(state->ctx);
         WSACleanup();
         return 1;
     }
 
-    strcpy(state->status, "Connected, performing SSL handshake...");
+    strcpy(state->status, xorstr_("Connected, performing SSL handshake..."));
 
     state->ssl = wolfSSL_new(state->ctx);
     wolfSSL_set_fd(state->ssl, (int)state->sockfd);
 
     if (wolfSSL_connect(state->ssl) != SSL_SUCCESS) {
-        strcpy(state->status, "SSL handshake error");
+        strcpy(state->status, xorstr_("SSL handshake error"));
         wolfSSL_free(state->ssl);
         closesocket(state->sockfd);
         wolfSSL_CTX_free(state->ctx);
@@ -86,79 +86,139 @@ DWORD WINAPI connect_to_server(LPVOID param) {
         return 1;
     }
 
-    strcpy(state->status, "Connected to server! Ready to authenticate.");
+    strcpy(state->status, xorstr_("Connected to server! Ready to authenticate."));
     state->connection_established = 1;
     return 0;
 }
 
+bool parse_hash_response(const char* json_str, HashCheckResponse& response) {
+    try {
+        json j = json::parse(json_str);
+
+        if (j.contains(xorstr_("status")) && j.contains(xorstr_("message"))) {
+            response.status = j[xorstr_("status")].get<std::string>();
+            response.message = j[xorstr_("message")].get<std::string>();
+            return true;
+        }
+    }
+    catch (const json::parse_error& e) {
+        std::cerr << xorstr_("JSON parse error: ") << e.what() << std::endl;
+    }
+    catch (const json::type_error& e) {
+        std::cerr << xorstr_("JSON type error: ") << e.what() << std::endl;
+    }
+    catch (const std::exception& e) {
+        std::cerr << xorstr_("Error parsing hash response: ") << e.what() << std::endl;
+    }
+
+    return false;
+}
+
 DWORD WINAPI authenticate_thread(LPVOID param) {
+    char path[MAX_PATH];
+    GetModuleFileNameA(NULL, path, MAX_PATH);
+
+    std::string filename = path;
+
     AppState* state = (AppState*)param;
     char buffer[BUFFER_SIZE];
     char credentials[BUFFER_SIZE];
     char cpuid_hash[65];
 
     state->auth_result = 0;
-    strcpy(state->status, "Authenticating...");
+    strcpy(state->status, xorstr_("Authenticating..."));
 
     get_hwid(state->hwid, sizeof(state->hwid));
     get_cpuid_hash(cpuid_hash);
 
-    snprintf(credentials, sizeof(credentials),
-        "USERNAME=%s&PASSWORD=%s&HWID=%s&CPUID_HASH=%s",
-        state->username, state->password, state->hwid, cpuid_hash);
+    char hash_request[128];
+    snprintf(hash_request, sizeof(hash_request), xorstr_("HASH_CHECK=%s"), Hasher::calculateHash(filename));
 
-    if (wolfSSL_write(state->ssl, credentials, strlen(credentials)) <= 0) {
-        strcpy(state->status, "Data sending error");
+    strcpy(state->status, xorstr_("Sending hash for verification..."));
+
+    if (wolfSSL_write(state->ssl, hash_request, strlen(hash_request)) <= 0) {
+        strcpy(state->status, xorstr_("Hash sending error"));
         state->auth_result = 3;
         return 1;
     }
 
-    strcpy(state->status, "Waiting for server response...");
+    strcpy(state->status, xorstr_("Waiting for hash verification..."));
 
     int bytes = wolfSSL_read(state->ssl, buffer, sizeof(buffer) - 1);
     if (bytes > 0) {
         buffer[bytes] = '\0';
-        strncpy(state->server_response, buffer, sizeof(state->server_response) - 1);
 
-        DecodedToken decoded;
-        if (parse_json_response(buffer, decoded)) {
+        HashCheckResponse hash_response;
+        if (parse_hash_response(buffer, hash_response)) {
 
-            std::cout << decoded.status << std::endl;
-            std::cout << decoded.token << std::endl;
-            std::cout << decoded.message << std::endl;
-            std::cout << decoded.timestamp << std::endl;
-            std::cout << decoded.hash_cpuid << std::endl;
-            std::cout << decoded.client_ip << std::endl;
+            if (hash_response.status == xorstr_("hash_valid")) {
+                std::cout << xorstr_("Hash valid") << std::endl;
 
-            if (decoded.status == "success") {
-                if (verify_token(decoded, decoded.client_ip.c_str(), credentials, cpuid_hash)) {
-                    strcpy(state->session_token, decoded.token.c_str());
-                    strcpy(state->status, "Authentication successful!");
-                    state->auth_result = 1;
-                    state->connected = 1;
-                    state->login_time = time(NULL);
+                strcpy(state->status, xorstr_("Hash verified, sending credentials..."));
 
-                    snprintf(state->user_info, sizeof(state->user_info),
-                        "Username: %s\nStatus: Authenticated\nHWID: %s\nToken: %s\nLogin time: %s",
-                        state->username, state->hwid, state->session_token, ctime(&state->login_time));
+                snprintf(credentials, sizeof(credentials),
+                    xorstr_("USERNAME=%s&PASSWORD=%s&HWID=%s&CPUID_HASH=%s"),
+                    state->username, state->password, state->hwid, cpuid_hash);
+
+                if (wolfSSL_write(state->ssl, credentials, strlen(credentials)) <= 0) {
+                    strcpy(state->status, xorstr_("Credentials sending error"));
+                    state->auth_result = 3;
+                    return 1;
+                }
+
+                strcpy(state->status, xorstr_("Waiting for authentication response..."));
+
+                bytes = wolfSSL_read(state->ssl, buffer, sizeof(buffer) - 1);
+                if (bytes > 0) {
+                    buffer[bytes] = '\0';
+                    strncpy(state->server_response, buffer, sizeof(state->server_response) - 1);
+
+                    DecodedToken decoded;
+                    if (parse_json_response(buffer, decoded)) {
+                        if (decoded.status == xorstr_("success")) {
+                            if (verify_token(decoded, decoded.ip.c_str(), credentials, cpuid_hash)) {
+                                strcpy(state->session_token, decoded.token.c_str());
+                                strcpy(state->status, xorstr_("Authentication successful!"));
+                                state->auth_result = 1;
+                                state->connected = 1;
+                                state->login_time = time(NULL);
+
+                                snprintf(state->user_info, sizeof(state->user_info),
+                                    xorstr_("Username: %s\nStatus: Authenticated\nHWID: %s\nToken: %s\nLogin time: %s"),
+                                    state->username, state->hwid, state->session_token, ctime(&state->login_time));
+                            }
+                            else {
+                                strcpy(state->status, xorstr_("Token verification failed"));
+                                state->auth_result = 2;
+                            }
+                        }
+                        else {
+                            strcpy(state->status, decoded.message.c_str());
+                            state->auth_result = 2;
+                        }
+                    }
+                    else {
+                        strcpy(state->status, xorstr_("Invalid server response format"));
+                        state->auth_result = 3;
+                    }
                 }
                 else {
-                    strcpy(state->status, "Token verification failed");
-                    state->auth_result = 2;
+                    strcpy(state->status, xorstr_("No authentication response from server"));
+                    state->auth_result = 3;
                 }
             }
             else {
-                strcpy(state->status, decoded.message.c_str());
+                strcpy(state->status, hash_response.message.c_str());
                 state->auth_result = 2;
             }
         }
         else {
-            strcpy(state->status, "Invalid server response format");
+            strcpy(state->status, xorstr_("Invalid hash response format"));
             state->auth_result = 3;
         }
     }
     else {
-        strcpy(state->status, "Server did not respond");
+        strcpy(state->status, xorstr_("Server did not respond to hash request"));
         state->auth_result = 3;
     }
 
@@ -172,9 +232,9 @@ DWORD WINAPI send_command_thread(LPVOID param) {
     if (state->ssl && state->connected && strlen(state->session_token) > 0) {
         try {
             json request;
-            request["command"] = params->command;
-            request["token"] = state->session_token;
-            request["timestamp"] = (long long)time(0);
+            request[xorstr_("command")] = params->command;
+            request[xorstr_("token")] = state->session_token;
+            request[xorstr_("timestamp")] = (long long)time(0);
 
             std::string request_json = request.dump();
 
@@ -186,28 +246,28 @@ DWORD WINAPI send_command_thread(LPVOID param) {
 
                     try {
                         json j = json::parse(response);
-                        std::string status = j.value("status", "error");
-                        std::string message = j.value("message", "");
+                        std::string status = j.value(xorstr_("status"), xorstr_("error"));
+                        std::string message = j.value(xorstr_("message"), xorstr_(""));
 
-                        if (status == "success") {
+                        if (status == xorstr_("success")) {
                             snprintf(state->server_response, sizeof(state->server_response),
-                                "Command executed: %s", message.c_str());
+                                xorstr_("Command executed: %s"), message.c_str());
                         }
                         else {
                             snprintf(state->server_response, sizeof(state->server_response),
-                                "Error: %s", message.c_str());
+                                xorstr_("Error: %s"), message.c_str());
                         }
                     }
                     catch (const std::exception& e) {
                         snprintf(state->server_response, sizeof(state->server_response),
-                            "Invalid response: %s", response);
+                            xorstr_("Invalid response: %s"), response);
                     }
                 }
             }
         }
         catch (const std::exception& e) {
             snprintf(state->server_response, sizeof(state->server_response),
-                "JSON error: %s", e.what());
+                xorstr_("JSON error: %s"), e.what());
         }
     }
 
@@ -239,4 +299,17 @@ void cleanup_connection(AppState* state) {
     state->connection_established = 0;
     state->connected = 0;
     memset(state->session_token, 0, sizeof(state->session_token));
+}
+
+void perform_auto_login(AppState* state, HANDLE* auth_thread) {
+    if (state->auto_login &&
+        state->username[0] != '\0' &&
+        state->password[0] != '\0' &&
+        !state->connected &&
+        state->connection_established &&
+        *auth_thread == NULL) {
+
+        strcpy(state->status, xorstr_("Performing auto-login..."));
+        *auth_thread = CreateThread(NULL, 0, authenticate_thread, state, 0, NULL);
+    }
 }

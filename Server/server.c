@@ -8,13 +8,13 @@
 #include <curl/curl.h>
 #include <wolfssl/ssl.h>
 #include <time.h>
-#include <sys/utsname.h>
 #include <jansson.h>
 
 #define PORT 4433
 #define BUFFER_SIZE 1024
 #define PHP_URL "https://prometh.fun/api/auth.php"
 #define TOKEN_SIZE 33
+#define VALID_HASH "48c2097e"
 
 void die(const char* msg) {
     perror(msg);
@@ -71,19 +71,31 @@ char* create_json_response(int success, const char* token, const char* message,
     
     json_object_set_new(root, "status", json_string(success ? "success" : "error"));
     
-    if (token)
-        json_object_set_new(root, "token", json_string(token));
-    
     if (message)
         json_object_set_new(root, "message", json_string(message));
+
+    if (token)
+        json_object_set_new(root, "token", json_string(token));
     
     json_object_set_new(root, "timestamp", json_integer(timestamp));
     
     if (cpuid_hash)
-        json_object_set_new(root, "hash_cpuid", json_string(cpuid_hash));
+        json_object_set_new(root, "cpuid", json_string(cpuid_hash));
 
     if (client_ip)
-        json_object_set_new(root, "client_ip", json_string(client_ip));
+        json_object_set_new(root, "ip", json_string(client_ip));
+    
+    char *json_str = json_dumps(root, JSON_COMPACT);
+    json_decref(root);
+    
+    return json_str;
+}
+
+char* create_hash_response(int valid, const char* message) {
+    json_t *root = json_object();
+    
+    json_object_set_new(root, "status", json_string(valid ? "hash_valid" : "hash_invalid"));
+    json_object_set_new(root, "message", json_string(message));
     
     char *json_str = json_dumps(root, JSON_COMPACT);
     json_decref(root);
@@ -114,6 +126,10 @@ const char* extract_cpuid_hash(const char* credentials) {
         return hash;
     }
     return NULL;
+}
+
+int verify_hash(const char* received_hash) {
+    return (strcmp(received_hash, VALID_HASH) == 0);
 }
 
 int verify_with_php(const char *credentials) {
@@ -212,37 +228,88 @@ int main() {
             close(clientfd);
             continue;
         }
-        
+
         int bytes = wolfSSL_read(ssl, buffer, sizeof(buffer) - 1);
         if (bytes > 0) {
             buffer[bytes] = '\0';
-            printf("Received auth request: %s\n", buffer);
+            printf("Received request: %s\n", buffer);
             
-            int auth_result = verify_with_php(buffer);
-            const char* cpuid_hash = extract_cpuid_hash(buffer);
-            
-            time_t timestamp = time(0);
-            
-            char* json_response;
-            if (auth_result == 1 || auth_result == 2) {
-                char token[TOKEN_SIZE];
-                generate_token(token, client_ip, buffer, cpuid_hash, timestamp);
+            if (strncmp(buffer, "HASH_CHECK=", 11) == 0) {
+                const char* received_hash = buffer + 11;
+                printf("Hash check request: %s\n", received_hash);
                 
-                json_response = create_json_response(1, token, 
-                    auth_result == 2 ? "New device registered" : "Authentication successful",
-                    cpuid_hash, timestamp, client_ip);
+                int hash_valid = verify_hash(received_hash);
+                char* hash_response;
                 
-		        printf(json_response);
-
-                printf("\nAuthentication successful for %s\n", client_ip);
+                if (hash_valid) {
+                    hash_response = create_hash_response(1, "Hash verified");
+                    printf("Hash valid for client %s\n", client_ip);
+                } else {
+                    hash_response = create_hash_response(0, "Invalid hash");
+                    printf("Hash invalid for client %s\n", client_ip);
+                }
+                
+                wolfSSL_write(ssl, hash_response, strlen(hash_response));
+                free(hash_response);
+                
+                if (hash_valid) {
+                    bytes = wolfSSL_read(ssl, buffer, sizeof(buffer) - 1);
+                    if (bytes > 0) {
+                        buffer[bytes] = '\0';
+                        printf("Received credentials: %s\n", buffer);
+                        
+                        int auth_result = verify_with_php(buffer);
+                        const char* cpuid_hash = extract_cpuid_hash(buffer);
+                        
+                        time_t timestamp = time(0);
+                        
+                        char* json_response;
+                        if (auth_result == 1 || auth_result == 2) {
+                            char token[TOKEN_SIZE];
+                            generate_token(token, client_ip, buffer, cpuid_hash, timestamp);
+                            
+                            json_response = create_json_response(1, token, 
+                                auth_result == 2 ? "New device registered" : "authenticated",
+                                cpuid_hash, timestamp, client_ip);
+                            
+                            printf("Authentication successful for %s\n", client_ip);
+                        } else {
+                            const char* message = (auth_result == 3) ? "HWID mismatch" : "Authentication failed";
+                            json_response = create_json_response(0, NULL, message, cpuid_hash, timestamp, client_ip);
+                            printf("Authentication failed for %s: %s\n", client_ip, message);
+                        }
+                        
+                        wolfSSL_write(ssl, json_response, strlen(json_response));
+                        free(json_response);
+                    }
+                }
             } else {
-                const char* message = (auth_result == 3) ? "HWID mismatch" : "Authentication failed";
-                json_response = create_json_response(0, NULL, message, cpuid_hash, timestamp, client_ip);
-                printf("Authentication failed for %s: %s\n", client_ip, message);
+                printf("Direct auth request: %s\n", buffer);
+                
+                int auth_result = verify_with_php(buffer);
+                const char* cpuid_hash = extract_cpuid_hash(buffer);
+                
+                time_t timestamp = time(0);
+                
+                char* json_response;
+                if (auth_result == 1 || auth_result == 2) {
+                    char token[TOKEN_SIZE];
+                    generate_token(token, client_ip, buffer, cpuid_hash, timestamp);
+                    
+                    json_response = create_json_response(1, token, 
+                        auth_result == 2 ? "New device registered" : "authenticated",
+                        cpuid_hash, timestamp, client_ip);
+                    
+                    printf("Authentication successful for %s\n", client_ip);
+                } else {
+                    const char* message = (auth_result == 3) ? "HWID mismatch" : "Authentication failed";
+                    json_response = create_json_response(0, NULL, message, cpuid_hash, timestamp, client_ip);
+                    printf("Authentication failed for %s: %s\n", client_ip, message);
+                }
+                
+                wolfSSL_write(ssl, json_response, strlen(json_response));
+                free(json_response);
             }
-            
-            wolfSSL_write(ssl, json_response, strlen(json_response));
-            free(json_response);
         }
         
         wolfSSL_shutdown(ssl);

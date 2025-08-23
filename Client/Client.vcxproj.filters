@@ -48,6 +48,9 @@
     <ClCompile Include="Dependencies\imgui\imgui_widgets.cpp">
       <Filter>Исходные файлы</Filter>
     </ClCompile>
+    <ClCompile Include="Utils\CredentialsManager.cpp">
+      <Filter>Исходные файлы</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="cert.h">
@@ -366,6 +369,12 @@
       <Filter>Файлы заголовков</Filter>
     </ClInclude>
     <ClInclude Include="Dependencies\json\nlohmann\ordered_map.hpp">
+      <Filter>Файлы заголовков</Filter>
+    </ClInclude>
+    <ClInclude Include="Utils\CredentialsManager.h">
+      <Filter>Файлы заголовков</Filter>
+    </ClInclude>
+    <ClInclude Include="Utils\xor.h">
       <Filter>Файлы заголовков</Filter>
     </ClInclude>
   </ItemGroup>

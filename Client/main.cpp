@@ -7,12 +7,19 @@
 #include <imgui.h>
 #include <imgui_impl_win32.h>
 #include <imgui_impl_dx11.h>
+#include "Utils/CredentialsManager.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
+const char* AntiDebugSystem::encryptedTools[8] = { 0 };
+const char* AntiDebugSystem::encryptedError = nullptr;
+
+#define SECURITY_CHECK() AntiDebugSystem::QuickCheck()
+#define INIT_SECURITY() AntiDebugSystem::InitializeProtection()
+
 void die(const char* msg) {
-    fprintf(stderr, "%s\n", msg);
-    MessageBoxA(NULL, msg, "Error", MB_ICONERROR);
+    fprintf(stderr, xorstr_("%s\n"), msg);
+    MessageBoxA(NULL, msg, xorstr_("Error"), MB_ICONERROR);
     exit(EXIT_FAILURE);
 }
 
@@ -48,9 +55,17 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 int APIENTRY WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 #ifdef _DEBUG
     AllocConsole();
-    freopen_s(reinterpret_cast<FILE**>(stdin), "CONIN$", "r", stdin);
-    freopen_s(reinterpret_cast<FILE**>(stdout), "CONOUT$", "w", stdout);
+    freopen_s(reinterpret_cast<FILE**>(stdin), xorstr_("CONIN$"), xorstr_("r"), stdin);
+    freopen_s(reinterpret_cast<FILE**>(stdout), xorstr_("CONOUT$"), xorstr_("w"), stdout);
 #endif
+
+    char path[MAX_PATH];
+    GetModuleFileNameA(NULL, path, MAX_PATH);
+
+    std::string filename = path;
+    std::cout << xorstr_("Hash: ") << Hasher::calculateHash(filename) << std::endl;
+
+    //INIT_SECURITY();
 
     AppState state = { 0 };
     state.auth_result = 0;
@@ -62,11 +77,15 @@ int APIENTRY WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     state.ssl = NULL;
     state.ctx = NULL;
     state.connection_established = 0;
+    state.auto_login = false;
+    state.save_creds = false;
     get_hwid(state.hwid, sizeof(state.hwid));
 
-    WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, L"SSL Client", NULL };
+    CredentialsManager::LoadCredentials(&state);
+
+    WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, xorstr_(L"SSL Client"), NULL };
     RegisterClassExW(&wc);
-    hwnd = CreateWindowExW(NULL, wc.lpszClassName, L"SSL Client", WS_POPUP,
+    hwnd = CreateWindowExW(NULL, wc.lpszClassName, xorstr_(L"SSL Client"), WS_POPUP,
         (GetSystemMetrics(SM_CXSCREEN) / 2) - (window_size.x / 2),
         (GetSystemMetrics(SM_CYSCREEN) / 2) - (window_size.y / 2),
         window_size.x, window_size.y, 0, 0, 0, 0);
@@ -75,7 +94,7 @@ int APIENTRY WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     SetLayeredWindowAttributes(hwnd, RGB(0, 0, 0), 255, LWA_ALPHA);
 
     if (!InitializeDX11(hwnd)) {
-        die("DirectX 11 initialization error");
+        die(xorstr_("DirectX 11 initialization error"));
     }
 
     ID3D11Texture2D* pBackBuffer;
@@ -118,15 +137,28 @@ int APIENTRY WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
         ImGui::SetNextWindowSize(ImVec2(window_size.x, window_size.y));
         ImGui::SetNextWindowBgAlpha(1.0f);
 
+        if (state.current_page == 0)
+            perform_auto_login(&state, &auth_thread);
+
         if (state.current_page == 0) {
-            ImGui::Begin("SSL Client - Login", NULL,
+            ImGui::Begin(xorstr_("SSL Client - Login"), NULL,
                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
             show_login_page(&state, &auth_thread, &connect_thread);
         }
-        else {
-            ImGui::Begin("SSL Client - Dashboard", NULL,
+        else if (state.current_page == 1) {
+            ImGui::Begin(xorstr_("SSL Client - Dashboard"), NULL,
                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
             show_dashboard_page(&state, &keep_alive_thread_handle);
+        }
+        else if (state.current_page == 2) {
+            ImGui::Begin(xorstr_("SSL Client - Settings"), NULL,
+                ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
+            show_settings_page(&state);
+        }
+        else {
+            ImGui::Begin(xorstr_("SSL Client - Settings"), NULL,
+                ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
+            show_settings_page2(&state);
         }
 
         move_window(hwnd, window_size, rc);

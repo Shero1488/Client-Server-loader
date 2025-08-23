@@ -135,6 +135,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -155,6 +156,7 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Network\NetworkManager.cpp" />
     <ClCompile Include="Security\SecurityUtils.cpp" />
+    <ClCompile Include="Utils\CredentialsManager.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="App\AppState.h" />
@@ -263,6 +265,8 @@
     <ClInclude Include="include\nlohmann\thirdparty\hedley\hedley_undef.hpp" />
     <ClInclude Include="Network\NetworkManager.h" />
     <ClInclude Include="Security\SecurityUtils.h" />
+    <ClInclude Include="Utils\xor.h" />
+    <ClInclude Include="Utils\CredentialsManager.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
